@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct PathNode {
     id: NodeId,
     forward_if_id: IfaceIndex,
@@ -25,6 +25,7 @@ impl Display for PathNode {
     }
 }
 
+#[derive(Clone)]
 struct Path {
     nodes: VecDeque<PathNode>,
 }
@@ -194,6 +195,7 @@ impl Topology {
                  finish_id: NodeId,
                  finish_if_id: IfaceIndex,
                  curr_path: &mut Path,
+                 path_vec: &mut Vec<Path>,
     ) -> bool {
         // println!("searching path from {start_id} to {finish_id}");
 
@@ -207,7 +209,9 @@ impl Topology {
             last_node.forward_if_id = finish_if_id;
 
             // println!("found finish node {finish_id}");
-            println!("{}", curr_path);
+            // println!("{}", curr_path);
+
+            path_vec.push(curr_path.clone());
 
             return true;
         }
@@ -228,21 +232,22 @@ impl Topology {
                     last_node.forward_if_id = *if_id;
 
                     // println!("visiting {start_id}({if_id}) => {neigh_id}({neigh_if_id})");
-                    if self.find_path(*neigh_id, *neigh_if_id, finish_id, finish_if_id, curr_path) {
+                    if self.find_path(*neigh_id, *neigh_if_id, finish_id, finish_if_id, curr_path, path_vec) {
                         // println!("found path from {start_id} to {finish_id}");
                         if !ifaces_to_visit.is_empty() {
-                            // println!("{start_id}: not all interfaces were visitted");
-                            curr_path.nodes.pop_back().unwrap();
+                            let _tail = curr_path.nodes.pop_back().unwrap();
+                            // println!("{start_id}: not all interfaces were visitted. extracting {}", tail.id);
                             flag = true;
                             continue;
                         }
                         else {
-                            // println!("{start_id}: interfaces were visitted");
+                            let _tail = curr_path.nodes.pop_back().unwrap();
+                            // println!("{start_id}: all interfaces were visitted. extracting {}", tail.id);
                             return true;
                         }
                     }
                     else {
-                        let tail = curr_path.nodes.pop_back().unwrap();
+                        let _tail = curr_path.nodes.pop_back().unwrap();
                         // println!("{start_id}: this is the dead end. extracting {}", tail.id);
                     }
                 }
@@ -378,12 +383,13 @@ mod tests {
 
         let topo = create_line_topology();
         let mut path = Path::new();
+        let mut paths: Vec<Path> = Vec::new();
 
         topo.find_path(n_a,
                        topo.get_local_app_iface_id(n_a).unwrap(),
                        n_c,
                        topo.get_local_app_iface_id(n_c).unwrap(),
-                       &mut path);
+                       &mut path, &mut paths);
     }
 
     // Internet -- (1)A(2) -- (1)B(4) -- (1)C(2) -- Internet
@@ -491,9 +497,14 @@ mod tests {
 
         let topo = create_big_topology();
         let mut path = Path::new();
+        let mut paths: Vec<Path> = Vec::new();
 
         topo.find_path(n_d, topo.get_local_app_iface_id(n_d).unwrap(),
                        n_c, topo.get_internet_iface_id(n_c).unwrap(),
-                       &mut path);
+                       &mut path, &mut paths);
+
+        for found_path in paths {
+            println!("{found_path}");
+        }
     }
 }
