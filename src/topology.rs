@@ -193,51 +193,69 @@ impl Topology {
                  start_if_id: IfaceIndex,
                  finish_id: NodeId,
                  finish_if_id: IfaceIndex,
-                 path: &mut Path,
+                 curr_path: &mut Path,
     ) -> bool {
-        println!("searching path from {start_id} to {finish_id}");
+        // println!("searching path from {start_id} to {finish_id}");
 
         let start_node = self.nodes.get(&start_id).unwrap();
         let mut path_node = PathNode::new(start_id);
         path_node.reverse_if_id = start_if_id;
-        path.nodes.push_back(path_node);
+        curr_path.nodes.push_back(path_node);
 
         if start_id == finish_id {
-            let mut last_node = path.nodes.back_mut().unwrap();
+            let mut last_node = curr_path.nodes.back_mut().unwrap();
             last_node.forward_if_id = finish_if_id;
 
-            println!("found finish node {finish_id}");
-            println!("{}", path);
+            // println!("found finish node {finish_id}");
+            println!("{}", curr_path);
 
             return true;
         }
 
+        let mut ifaces_to_visit: Vec<IfaceIndex> = start_node.ifaces.values()
+                                                                    .filter(|&x| x.if_type == InterfaceType::LocalNet)
+                                                                    .map(|x| x.id)
+                                                                    .collect();
+
+        let mut flag = false;
+
         for (if_id, iface) in start_node.ifaces.iter() {
+            ifaces_to_visit.retain(|&x| x != *if_id);
+
             for (neigh_id, neigh_if_id) in &iface.neighbors {
-                if !self.check_if_visitted(*neigh_id, path) {
-                    let mut last_node = path.nodes.back_mut().unwrap();
+                if !self.check_if_visitted(*neigh_id, curr_path) {
+                    let mut last_node = curr_path.nodes.back_mut().unwrap();
                     last_node.forward_if_id = *if_id;
 
-                    println!("visiting {start_id}({if_id}) => {neigh_id}({neigh_if_id})");
-                    if self.find_path(*neigh_id, *neigh_if_id, finish_id, finish_if_id, path) {
-                        println!("found path from {start_id} to {finish_id}");
-                        return true;
+                    // println!("visiting {start_id}({if_id}) => {neigh_id}({neigh_if_id})");
+                    if self.find_path(*neigh_id, *neigh_if_id, finish_id, finish_if_id, curr_path) {
+                        // println!("found path from {start_id} to {finish_id}");
+                        if !ifaces_to_visit.is_empty() {
+                            // println!("{start_id}: not all interfaces were visitted");
+                            curr_path.nodes.pop_back().unwrap();
+                            flag = true;
+                            continue;
+                        }
+                        else {
+                            // println!("{start_id}: interfaces were visitted");
+                            return true;
+                        }
                     }
                     else {
-                        let tail = path.nodes.pop_back().unwrap();
-                        println!("this is the dead end. extracting {}", tail.id);
+                        let tail = curr_path.nodes.pop_back().unwrap();
+                        // println!("{start_id}: this is the dead end. extracting {}", tail.id);
                     }
                 }
                 else {
-                    println!("{start_id}: neighbor {neigh_id} was already visitted");
+                    // println!("{start_id}: neighbor {neigh_id} was already visitted");
                 }
             }
             if !iface.neighbors.is_empty() {
-                println!("{start_id}: we have seen all available neighbors over interface {if_id}");
+                // println!("{start_id}: we have seen all available neighbors over interface {if_id}");
             }
         }
-        println!("{start_id}: we have seen all available interfaces");
-        false
+        // println!("{start_id}: we have seen all available interfaces");
+        flag
     }
 }
 
