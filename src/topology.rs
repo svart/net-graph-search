@@ -37,13 +37,13 @@ pub(crate) struct IfaceIndex(u8);
 struct Interface {
     id: IfaceIndex,
     if_type: InterfaceType,
-    neighbors: Vec<NodeId>,
+    neighbors: Vec<(NodeId, IfaceIndex)>,
 }
 
 impl Interface {
     fn new(id: IfaceIndex,
            if_type: InterfaceType,
-           neighbors: Vec<NodeId>
+           neighbors: Vec<(NodeId, IfaceIndex)>
     ) -> Self {
         Self {
             id,
@@ -105,6 +105,20 @@ impl Topology {
         res
     }
 
+    fn get_adjacent_interface(&self, from_node: NodeId,
+                              via_if: IfaceIndex,
+                              to_node: NodeId) -> Option<IfaceIndex> {
+        let node = self.nodes.get(&from_node).unwrap();
+        let iface = node.ifaces.get(&via_if).unwrap();
+
+        for (neigh_id, adj_iface) in &iface.neighbors {
+            if *neigh_id == to_node {
+                return Some(*adj_iface);
+            }
+        }
+        None
+    }
+
     fn find_path(self, start_id: NodeId, finish_id: NodeId) -> Path {
         Path::new()
     }
@@ -119,11 +133,13 @@ mod tests {
         let n_a = NodeId(0xA);
         let n_b = NodeId(0xB);
         let n_c = NodeId(0xC);
+        let if_1 = IfaceIndex(1);
+        let if_2 = IfaceIndex(2);
 
-        let if_a_1 = Interface::new(IfaceIndex(1), InterfaceType::LocalNet, vec![n_b]);
-        let if_b_1 = Interface::new(IfaceIndex(1), InterfaceType::LocalNet, vec![n_a]);
-        let if_b_2 = Interface::new(IfaceIndex(2), InterfaceType::LocalNet, vec![n_c]);
-        let if_c_1 = Interface::new(IfaceIndex(1), InterfaceType::LocalNet, vec![n_b]);
+        let if_a_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_b, if_1)]);
+        let if_b_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_a, if_1)]);
+        let if_b_2 = Interface::new(if_2, InterfaceType::LocalNet, vec![(n_c, if_1)]);
+        let if_c_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_b, if_2)]);
 
         let mut node_a = TopologyNode::new(n_a);
         let mut node_b = TopologyNode::new(n_b);
@@ -183,6 +199,39 @@ mod tests {
         let topo = create_line_topology_with_internet_2();
         let gts = topo.find_internet_gateway();
         assert!(!gts.is_empty());
-        assert!(gts.len() == 2);
+        assert_eq!(gts.len(), 2);
+    }
+
+    #[test]
+    fn find_adjacent_interface() {
+        let n_a = NodeId(0xA);
+        let n_b = NodeId(0xB);
+        let n_c = NodeId(0xC);
+        let if_1 = IfaceIndex(1);
+        let if_2 = IfaceIndex(2);
+
+        // Internet -- (2)A(1) -- (1)B(2) -- (1)C(2) -- Internet
+        let topo = create_line_topology_with_internet_2();
+
+        assert_eq!(topo.get_adjacent_interface(n_a, if_1, n_a), None);
+        assert_eq!(topo.get_adjacent_interface(n_a, if_2, n_a), None);
+        assert_eq!(topo.get_adjacent_interface(n_a, if_1, n_b), Some(if_1));
+        assert_eq!(topo.get_adjacent_interface(n_a, if_2, n_b), None);
+        assert_eq!(topo.get_adjacent_interface(n_a, if_2, n_c), None);
+        assert_eq!(topo.get_adjacent_interface(n_a, if_1, n_c), None);
+
+        assert_eq!(topo.get_adjacent_interface(n_b, if_1, n_a), Some(if_1));
+        assert_eq!(topo.get_adjacent_interface(n_b, if_2, n_a), None);
+        assert_eq!(topo.get_adjacent_interface(n_b, if_1, n_b), None);
+        assert_eq!(topo.get_adjacent_interface(n_b, if_2, n_b), None);
+        assert_eq!(topo.get_adjacent_interface(n_b, if_2, n_c), Some(if_1));
+        assert_eq!(topo.get_adjacent_interface(n_b, if_1, n_c), None);
+
+        assert_eq!(topo.get_adjacent_interface(n_c, if_1, n_a), None);
+        assert_eq!(topo.get_adjacent_interface(n_c, if_2, n_a), None);
+        assert_eq!(topo.get_adjacent_interface(n_c, if_1, n_b), Some(if_2));
+        assert_eq!(topo.get_adjacent_interface(n_c, if_2, n_b), None);
+        assert_eq!(topo.get_adjacent_interface(n_c, if_1, n_c), None);
+        assert_eq!(topo.get_adjacent_interface(n_c, if_2, n_c), None);
     }
 }
