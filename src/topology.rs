@@ -130,6 +130,10 @@ impl Topology {
         self.nodes.insert(node.id, node);
     }
 
+    fn get_node(&self, node_id: NodeId) -> &TopologyNode {
+        self.nodes.get(&node_id).unwrap()
+    }
+
     fn get_node_mut(&mut self, node_id: NodeId) -> &mut TopologyNode {
         self.nodes.get_mut(&node_id).unwrap()
     }
@@ -273,21 +277,33 @@ mod tests {
         let n_a = NodeId(0xA);
         let n_b = NodeId(0xB);
         let n_c = NodeId(0xC);
+
+        let if_0 = IfaceIndex(0);
         let if_1 = IfaceIndex(1);
         let if_2 = IfaceIndex(2);
 
+        let if_a_0 = Interface::new(if_0, InterfaceType::LocalApp, vec![]);
         let if_a_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_b, if_1)]);
+
+        let if_b_0 = Interface::new(if_0, InterfaceType::LocalApp, vec![]);
         let if_b_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_a, if_1)]);
         let if_b_2 = Interface::new(if_2, InterfaceType::LocalNet, vec![(n_c, if_1)]);
+
+        let if_c_0 = Interface::new(if_0, InterfaceType::LocalApp, vec![]);
         let if_c_1 = Interface::new(if_1, InterfaceType::LocalNet, vec![(n_b, if_2)]);
 
         let mut node_a = TopologyNode::new(n_a);
         let mut node_b = TopologyNode::new(n_b);
         let mut node_c = TopologyNode::new(n_c);
 
+        node_a.add_iface(if_a_0);
         node_a.add_iface(if_a_1);
+
+        node_b.add_iface(if_b_0);
         node_b.add_iface(if_b_1);
         node_b.add_iface(if_b_2);
+
+        node_c.add_iface(if_c_0);
         node_c.add_iface(if_c_1);
 
         let mut topo = Topology::new();
@@ -499,12 +515,72 @@ mod tests {
         let mut path = Path::new();
         let mut paths: Vec<Path> = Vec::new();
 
-        topo.find_path(n_d, topo.get_local_app_iface_id(n_d).unwrap(),
-                       n_c, topo.get_internet_iface_id(n_c).unwrap(),
+        let start_if_id = topo.get_local_app_iface_id(n_d).unwrap();
+        let finish_if_id = topo.get_internet_iface_id(n_c).unwrap();
+
+        topo.find_path(n_d, start_if_id,
+                       n_c, finish_if_id,
                        &mut path, &mut paths);
 
-        for found_path in paths {
-            println!("{found_path}");
+        check_paths_in_topology(&topo, paths, n_d, start_if_id, n_c, finish_if_id);
+    }
+
+    fn check_paths_in_topology(topo: &Topology,
+                               paths: Vec<Path>,
+                               start_node_id: NodeId,
+                               start_if_id: IfaceIndex,
+                               finish_node_id: NodeId,
+                               finish_if_id: IfaceIndex) {
+        for mut found_path in paths {
+            println!("checking path: {found_path}");
+
+            assert_eq!(found_path.nodes.front().unwrap().id, start_node_id);
+            assert_eq!(found_path.nodes.front().unwrap().reverse_if_id, start_if_id);
+            assert_eq!(found_path.nodes.back().unwrap().id, finish_node_id);
+            assert_eq!(found_path.nodes.back().unwrap().forward_if_id, finish_if_id);
+
+            for node_pair in found_path.nodes.make_contiguous()[..].windows(2) {
+                let path_node_1 = &node_pair[0];
+                let path_node_2 = &node_pair[1];
+
+                let topo_node_1 = topo.get_node(path_node_1.id);
+                let topo_node_2 = topo.get_node(path_node_2.id);
+
+                let topo_if_1 = topo_node_1.ifaces.get(&path_node_1.forward_if_id).unwrap();
+                let topo_if_2 = topo_node_2.ifaces.get(&path_node_2.reverse_if_id).unwrap();
+
+                let pair_1 = topo_if_1.neighbors.iter().position(|x| x.0 == path_node_2.id && x.1 == topo_if_2.id);
+                let pair_2 = topo_if_2.neighbors.iter().position(|x| x.0 == path_node_1.id && x.1 == topo_if_1.id);
+                assert_ne!(pair_1, None);
+                assert_ne!(pair_2, None);
+                println!("path: {}.{} <=> {}.{}", path_node_1.id, path_node_1.forward_if_id, path_node_2.id, path_node_2.reverse_if_id);
+            }
+        }
+    }
+
+    #[test]
+    fn all_paths_to_all_internets_from_all_nodes() {
+        let topo = create_big_topology();
+
+        let nodes_with_internet = topo.find_internet_gateway();
+
+        for gateway_id in nodes_with_internet {
+            for node_id in topo.nodes.keys() {
+                println!("finding paths {node_id} => {gateway_id}");
+
+                let mut path = Path::new();
+                let mut paths: Vec<Path> = Vec::new();
+
+                let start_if_id = topo.get_local_app_iface_id(*node_id).unwrap();
+                let finish_if_id = topo.get_internet_iface_id(gateway_id).unwrap();
+                topo.find_path(*node_id,
+                               start_if_id,
+                               gateway_id,
+                               finish_if_id,
+                               &mut path, &mut paths);
+
+                check_paths_in_topology(&topo, paths, *node_id, start_if_id, gateway_id, finish_if_id);
+            }
         }
     }
 }
